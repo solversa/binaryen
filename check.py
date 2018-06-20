@@ -618,8 +618,8 @@ def run_emscripten_tests():
 
 # Run all the tests
 def main():
-  run_help_tests()
-  run_wasm_opt_tests()
+  #run_help_tests()
+  #run_wasm_opt_tests()
   asm2wasm.test_asm2wasm()
   asm2wasm.test_asm2wasm_binary()
   run_wasm_dis_tests()

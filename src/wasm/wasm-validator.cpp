@@ -501,13 +501,13 @@ void FunctionValidator::visitSetLocal(SetLocal* curr) {
 
 void FunctionValidator::visitGetGlobal(GetGlobal* curr) {
   if (!info.validateGlobally) return;
-  shouldBeTrue(getModule()->getGlobalOrNull(curr->name) || getModule()->getImportOrNull(curr->name), curr, "get_global name must be valid");
+  shouldBeTrue(getModule()->getGlobalOrNull(curr->name), curr, "get_global name must be valid");
 }
 
 void FunctionValidator::visitSetGlobal(SetGlobal* curr) {
   if (!info.validateGlobally) return;
   auto* global = getModule()->getGlobalOrNull(curr->name);
-  if (shouldBeTrue(global != NULL, curr, "set_global name must be valid (and not an import; imports can't be modified)")) {
+  if (shouldBeTrue(global != NULL, curr, "set_global name must be valid")) {
     shouldBeTrue(global->mutable_, curr, "set_global global must be mutable");
     shouldBeEqualOrFirstIsUnreachable(curr->value->type, global->type, curr, "set_global value must have right type");
   }
@@ -927,20 +927,34 @@ static void validateBinaryenIR(Module& wasm, ValidationInfo& info) {
 
 static void validateImports(Module& module, ValidationInfo& info) {
   for (auto& curr : module.imports) {
-    if (curr->kind == ExternalKind::Function) {
-      if (info.validateWeb) {
-        auto* functionType = module.getFunctionType(curr->functionType);
-        info.shouldBeUnequal(functionType->result, i64, curr->name, "Imported function must not have i64 return type");
-        for (Type param : functionType->params) {
-          info.shouldBeUnequal(param, i64, curr->name, "Imported function must not have i64 parameters");
+    switch(curr->kind) {
+      case ExternalKind::Function: {
+        if (info.validateWeb) {
+          auto* functionType = module.getFunctionType(curr->functionType);
+          info.shouldBeUnequal(functionType->result, i64, curr->name, "Imported function must not have i64 return type");
+          for (Type param : functionType->params) {
+            info.shouldBeUnequal(param, i64, curr->name, "Imported function must not have i64 parameters");
+          }
         }
       }
-    }
-    if (curr->kind == ExternalKind::Table) {
-      info.shouldBeTrue(module.table.imported, curr->name, "Table import record exists but table is not marked as imported");
-    }
-    if (curr->kind == ExternalKind::Memory) {
-      info.shouldBeTrue(module.memory.imported, curr->name, "Memory import record exists but memory is not marked as imported");
+      break;
+      case ExternalKind::Table:
+        info.shouldBeTrue(module.table.imported, curr->name, "Table import record exists but table is not marked as imported");
+        break;
+      case ExternalKind::Memory:
+        info.shouldBeTrue(module.memory.imported, curr->name, "Memory import record exists but memory is not marked as imported");
+        break;
+      case ExternalKind::Global: {
+        auto *importedGlobal = module.getGlobalOrNull(curr->name);
+        info.shouldBeTrue(importedGlobal, curr->name, "Imported global must exist");
+        info.shouldBeTrue(importedGlobal->imported, curr->name, "Imported global must be marked imported");
+        if (!(info.features & Feature::MutableGlobals)) {
+          info.shouldBeTrue(!importedGlobal->mutable_, "Imported globals must not be mutable unless MutableGlobals feature is enabled");
+        }
+      }
+      break;
+      default:
+        WASM_UNREACHABLE();
     }
   }
 }
@@ -983,8 +997,11 @@ static void validateExports(Module& module, ValidationInfo& info) {
 
 static void validateGlobals(Module& module, ValidationInfo& info) {
   for (auto& curr : module.globals) {
-    info.shouldBeTrue(curr->init != nullptr, curr->name, "global init must be non-null");
-    info.shouldBeTrue(curr->init->is<Const>() || curr->init->is<GetGlobal>(), curr->name, "global init must be valid");
+    if (curr->init == nullptr) {
+      info.shouldBeTrue(!curr->mutable_), curr->name,
+                        "Imported global must not be mutable");
+    }
+    info.shouldBeTrue(curr->init == nullptr || curr->init->is<Const>() || curr->init->is<GetGlobal>(), curr->name, "global init must be valid");
     if (!info.shouldBeEqual(curr->type, curr->init->type, curr->init, "global init must have correct type") && !info.quiet) {
       info.getStream(nullptr) << "(on global " << curr->name << ")\n";
     }

@@ -118,12 +118,15 @@ int main(int argc, const char *argv[]) {
       .add("--enable-threads", "-a", "Enable the Atomics wasm feature",
            Options::Arguments::Zero,
            [&](Options *o, const std::string& argument) { options.passOptions.features |= Feature::Atomics; })
+      .add("--enable-mutable-globals", "-mg", "Enable mutable imported globals",
+           Options::Arguments::Zero,
+           [&](Options *o, const std::string& argument) { options.passOptions.features |= Feature::MutableGlobals; })
       .add_positional("INFILE", Options::Arguments::One,
                       [](Options *o, const std::string& argument) {
                         o->extra["infile"] = argument;
                       });
   options.parse(argc, argv);
-
+  options.passOptions.features |= Feature::MutableGlobals;
   // finalize arguments
   if (options.extra["output"].size() == 0) {
     // when no output file is specified, we emit text to stdout

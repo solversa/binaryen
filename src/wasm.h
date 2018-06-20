@@ -59,6 +59,7 @@ namespace wasm {
 enum Feature : uint32_t {
   MVP = 0,
   Atomics = 1 << 0,
+  MutableGlobals = 1 << 1,
   All = 0xffffffff,
 };
 typedef uint32_t FeatureSet;
@@ -733,7 +734,7 @@ class Global {
 public:
   Name name;
   Type type;
-  Expression* init;
+  Expression* init; // init is nullptr if the global is imported
   bool mutable_;
 };
 

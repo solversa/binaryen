@@ -675,6 +675,15 @@ struct PrintSExpression : public Visitor<PrintSExpression> {
     }
     o << ")";
   }
+  void printGlobalHeader(Name name, Type globalType, bool isMutable) {
+    printOpening(o, "global ");
+    printName(name) << ' ';
+    if (isMutable) {
+      o << "(mut " << printType(globalType) << ")";
+    } else {
+      o << printType(globalType);
+    }
+  }
   void visitImport(Import *curr) {
     printOpening(o, "import ");
     printText(o, curr->module.str) << ' ';
@@ -683,7 +692,7 @@ struct PrintSExpression : public Visitor<PrintSExpression> {
       case ExternalKind::Function: if (curr->functionType.is()) visitFunctionType(currModule->getFunctionType(curr->functionType), &curr->name); break;
       case ExternalKind::Table:    printTableHeader(&currModule->table); break;
       case ExternalKind::Memory:   printMemoryHeader(&currModule->memory); break;
-      case ExternalKind::Global:   o << "(global " << curr->name << ' ' << printType(curr->globalType) << ")"; break;
+      case ExternalKind::Global:   printGlobalHeader(curr->name, curr->globalType, false); o << ')'; break;
       default: WASM_UNREACHABLE();
     }
     o << ')';
@@ -702,13 +711,8 @@ struct PrintSExpression : public Visitor<PrintSExpression> {
     printName(curr->value) << "))";
   }
   void visitGlobal(Global *curr) {
-    printOpening(o, "global ");
-    printName(curr->name) << ' ';
-    if (curr->mutable_) {
-      o << "(mut " << printType(curr->type) << ") ";
-    } else {
-      o << printType(curr->type) << ' ';
-    }
+    printGlobalHeader(curr->name, curr->type, curr->mutable_);
+    o << ' ';
     visit(curr->init);
     o << ')';
   }

@@ -920,16 +920,20 @@ void Asm2WasmBuilder::processAsm(Ref ast) {
       // tableBase and memoryBase are used as segment/element offsets, and must be constant;
       // otherwise, an asm.js import of a constant is mutable, e.g. STACKTOP
       if (name != "tableBase" && name != "memoryBase") {
-        // we need imported globals to be mutable, but wasm doesn't support that yet, so we must
-        // import an immutable and create a mutable global initialized to its value
-        import->name = Name(std::string(import->name.str) + "$asm2wasm$import");
-        {
-          wasm.addGlobal(builder.makeGlobal(
-            name,
-            type,
-            builder.makeGetGlobal(import->name, type),
-            Builder::Mutable
-          ));
+        if (passOptions.features & Feature::MutableGlobals) {
+
+        } else {
+          // we need imported globals to be mutable, but wasm doesn't support that yet, so we must
+          // import an immutable and create a mutable global initialized to its value
+          import->name = Name(std::string(import->name.str) + "$asm2wasm$import");
+          {
+            wasm.addGlobal(builder.makeGlobal(
+                name,
+                type,
+                builder.makeGetGlobal(import->name, type),
+                Builder::Mutable
+            ));
+          }
         }
       }
     } else {
