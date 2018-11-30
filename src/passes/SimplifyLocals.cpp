@@ -646,11 +646,12 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
         // opts; continue only if they do. In other words, do not end up
         // doing final opts again and again when no main opts are being
         // enabled.
-        if (runFinalOptimizations(func) && runMainOptimizations(func)) {
+        if (runLateOptimizations(func) && runMainOptimizations(func)) {
           anotherCycle = true;
         }
       }
     } while (anotherCycle);
+    runFinalOptimizations(func);
   }
 
   bool runMainOptimizations(Function* func) {
@@ -707,7 +708,7 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
     return anotherCycle;
   }
 
-  bool runFinalOptimizations(Function* func) {
+  bool runLateOptimizations(Function* func) {
     // Finally, after optimizing a function we can do some additional
     // optimization.
     getCounter.analyze(func);
@@ -844,6 +845,64 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
     setRemover.walkFunction(func);
 
     return eqOpter.anotherCycle || setRemover.anotherCycle;
+  }
+
+  void runFinalOptimizations(Function* func) {
+    struct FinalOptimizer : public PostWalker<FinalOptimizer> {
+      Module* module;
+
+      void visitSetLocal(SetLocal *curr) {
+        if (curr->isTee()) return;
+        // See if we should undo an if => if-else speculative optimization,
+        //  (set_local $x
+        //    (if (result ..)
+        //      (..condition..)
+        //      (block (result ..)
+        //        (..value..)
+        //      )
+        //      (get_local $x)
+        //    )
+        //  )
+        // =>
+        //  (if
+        //    (..condition..)
+        //    (set_local $x
+        //      (block (result ..)
+        //        (..value..)
+        //      )
+        //    )
+        //  )
+        // Check if any uses remain.
+        if (auto* iff = curr->value->dynCast<If>()) {
+          if (iff->type != unreachable) {
+            Builder builder(*module);
+            GetLocal* get = iff->ifTrue->dynCast<GetLocal>();
+            if (get && get->index == curr->index) {
+              builder.flip(iff);
+            } else {
+              get = iff->ifFalse->dynCast<GetLocal>();
+              if (get && get->index != curr->index) {
+                get = nullptr;
+              }
+            }
+            if (get) {
+              assert(curr->index == get->index);
+              assert(iff->ifFalse == get);
+              curr->value = iff->ifTrue;
+              curr->finalize();
+              iff->ifTrue = curr;
+              iff->ifFalse = nullptr;
+              iff->finalize();
+              this->replaceCurrent(iff);
+            }
+          }
+        }
+      }
+    };
+
+    FinalOptimizer finalOptimizer;
+    finalOptimizer.module = this->getModule();
+    finalOptimizer.walkFunction(func);
   }
 
   bool canUseLoopReturnValue(Loop* curr) {

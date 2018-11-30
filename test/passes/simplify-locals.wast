@@ -927,6 +927,31 @@
    )
    (get_local $0)
   )
+  (func $if-one-side-undo-but-its-a-tee (param $0 i32) (result i32)
+   (local $1 i32)
+   (local $2 i32)
+   (local $3 i32)
+   (local $4 i32)
+   (if
+    (block $label$1 (result i32)
+     (if
+      (i32.const 1)
+      (set_local $4
+       (i32.const 2)
+      )
+     )
+     (if
+      (get_local $4)
+      (set_local $4
+       (i32.const 0)
+      )
+     )
+     (get_local $4)
+    )
+    (unreachable)
+   )
+   (i32.const 0)
+  )
 )
 (module
   (memory (shared 256 256))
