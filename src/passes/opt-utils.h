@@ -21,6 +21,8 @@
 
 #include <wasm.h>
 #include <pass.h>
+#include <ir/cost.h>
+#include <ir/effects.h>
 
 namespace wasm {
 
@@ -48,6 +50,42 @@ inline void optimizeAfterInlining(std::unordered_set<Function*>& funcs, Module* 
   }
   all.swap(module->functions);
   module->updateMaps();
+}
+
+// Convert an if into a select, if possible and beneficial to do so.
+inline Select* selectify(If* iff, PassOptions& options, Module* module) {
+  if (!iff->ifFalse) return nullptr;
+  if (!isConcreteType(iff->ifTrue->type) ||
+      !isConcreteType(iff->ifFalse->type)) {
+    return nullptr;
+  }
+  // This is always helpful for code size, but can be a tradeoff with performance
+  // as we run both code paths. So when shrinking we always try to do this, but
+  // otherwise must consider more carefully.
+  if (!options.shrinkLevel) {
+    // Consider the cost of executing all the code unconditionally
+    const auto MAX_COST = 7;
+    auto total = CostAnalyzer(iff->ifTrue).cost +
+                 CostAnalyzer(iff->ifFalse).cost;
+    if (total >= MAX_COST) return nullptr;
+  }
+  // Check if side effects allow this.
+  EffectAnalyzer condition(options, iff->condition);
+  if (!condition.hasSideEffects()) {
+    EffectAnalyzer ifTrue(options, iff->ifTrue);
+    if (!ifTrue.hasSideEffects()) {
+      EffectAnalyzer ifFalse(options, iff->ifFalse);
+      if (!ifFalse.hasSideEffects()) {
+        auto* select = module->allocator.alloc<Select>();
+        select->condition = iff->condition;
+        select->ifTrue = iff->ifTrue;
+        select->ifFalse = iff->ifFalse;
+        select->finalize();
+        return select;
+      }
+    }
+  }
+  return nullptr;
 }
 
 } // namespace OptUtils

@@ -25,6 +25,7 @@
 #include <ir/branch-utils.h>
 #include <ir/effects.h>
 #include <wasm-builder.h>
+#include "opt-utils.h"
 
 namespace wasm {
 
@@ -616,7 +617,6 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
 
     // perform some final optimizations
     struct FinalOptimizer : public PostWalker<FinalOptimizer> {
-      bool shrink;
       PassOptions& passOptions;
 
       bool needUniqify = false;
@@ -665,7 +665,7 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
             assert(!br2->value); // same target as previous, which has no value
             // a br_if and then a br[_if] with the same target right after it
             if (br2->condition) {
-              if (shrink && br2->type != unreachable) {
+              if (passOptions.shrinkLevel > 0 && br2->type != unreachable) {
                 // Join adjacent br_ifs to the same target, making one br_if with
                 // a "selectified" condition that executes both.
                 if (!EffectAnalyzer(passOptions, br2->condition).hasSideEffects()) {
@@ -780,26 +780,8 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
 
       void visitIf(If* curr) {
         // we may have simplified ifs enough to turn them into selects
-        // this is helpful for code size, but can be a tradeoff with performance as we run both code paths
-        if (!shrink) return;
-        if (curr->ifFalse && isConcreteType(curr->ifTrue->type) && isConcreteType(curr->ifFalse->type)) {
-          // if with else, consider turning it into a select if there is no control flow
-          // TODO: estimate cost
-          EffectAnalyzer condition(passOptions, curr->condition);
-          if (!condition.hasSideEffects()) {
-            EffectAnalyzer ifTrue(passOptions, curr->ifTrue);
-            if (!ifTrue.hasSideEffects()) {
-              EffectAnalyzer ifFalse(passOptions, curr->ifFalse);
-              if (!ifFalse.hasSideEffects()) {
-                auto* select = getModule()->allocator.alloc<Select>();
-                select->condition = curr->condition;
-                select->ifTrue = curr->ifTrue;
-                select->ifFalse = curr->ifFalse;
-                select->finalize();
-                replaceCurrent(select);
-              }
-            }
-          }
+        if (auto* select = OptUtils::selectify(curr, passOptions, getModule())) {
+          replaceCurrent(select);
         }
       }
 
@@ -1010,7 +992,6 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
     };
     FinalOptimizer finalOptimizer(getPassOptions());
     finalOptimizer.setModule(getModule());
-    finalOptimizer.shrink = getPassRunner()->options.shrinkLevel > 0;
     finalOptimizer.walkFunction(func);
     if (finalOptimizer.needUniqify) {
       wasm::UniqueNameMapper::uniquify(func->body);
