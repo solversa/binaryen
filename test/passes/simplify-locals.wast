@@ -882,6 +882,51 @@
     )
    )
   )
+  (func $if-one-side (result i32)
+   (local $x i32)
+   (if
+    (i32.const 1)
+    (set_local $x
+     (i32.const 2)
+    )
+   )
+   (get_local  $x)
+  )
+  (func $if-one-side-undo (result i32)
+   (local $x i32)
+   (local $y i32)
+   (set_local $y
+    (i32.const 0)
+   )
+   (if
+    (i32.const 1)
+    (set_local $x
+     (i32.const 2)
+    )
+   )
+   (get_local  $y)
+  )
+  (func $if-one-side-multi (param $0 i32) (result i32)
+   (if
+    (i32.lt_s
+     (get_local $0)
+     (i32.const -1073741824)
+    )
+    (set_local $0
+     (i32.const -1073741824)
+    )
+    (if
+     (i32.gt_s
+      (get_local $0)
+      (i32.const 1073741823)
+     )
+     (set_local $0
+      (i32.const 1073741823)
+     )
+    )
+   )
+   (get_local $0)
+  )
 )
 (module
   (memory (shared 256 256))

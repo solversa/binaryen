@@ -885,6 +885,65 @@
    )
   )
  )
+ (func $if-one-side (; 19 ;) (type $FUNCSIG$i) (result i32)
+  (local $x i32)
+  (nop)
+  (if (result i32)
+   (i32.const 1)
+   (block (result i32)
+    (nop)
+    (i32.const 2)
+   )
+   (get_local $x)
+  )
+ )
+ (func $if-one-side-undo (; 20 ;) (type $FUNCSIG$i) (result i32)
+  (local $x i32)
+  (local $y i32)
+  (set_local $y
+   (i32.const 0)
+  )
+  (set_local $x
+   (if (result i32)
+    (i32.const 1)
+    (block (result i32)
+     (nop)
+     (i32.const 2)
+    )
+    (get_local $x)
+   )
+  )
+  (get_local $y)
+ )
+ (func $if-one-side-multi (; 21 ;) (type $5) (param $0 i32) (result i32)
+  (nop)
+  (tee_local $0
+   (if (result i32)
+    (i32.lt_s
+     (get_local $0)
+     (i32.const -1073741824)
+    )
+    (block (result i32)
+     (nop)
+     (i32.const -1073741824)
+    )
+    (block (result i32)
+     (nop)
+     (if (result i32)
+      (i32.gt_s
+       (get_local $0)
+       (i32.const 1073741823)
+      )
+      (block (result i32)
+       (nop)
+       (i32.const 1073741823)
+      )
+      (get_local $0)
+     )
+    )
+   )
+  )
+ )
 )
 (module
  (type $FUNCSIG$v (func))
@@ -1241,38 +1300,46 @@
  (func $pick (; 16 ;) (type $FUNCSIG$v)
   (local $x i32)
   (local $y i32)
-  (drop
+  (set_local $x
    (get_local $y)
   )
-  (if
-   (i32.const 1)
-   (drop
+  (drop
+   (if (result i32)
     (i32.const 1)
+    (block (result i32)
+     (nop)
+     (i32.const 1)
+    )
+    (get_local $x)
    )
   )
   (drop
    (get_local $y)
   )
-  (drop
+  (set_local $x
    (get_local $y)
   )
  )
  (func $pick-2 (; 17 ;) (type $FUNCSIG$v)
   (local $x i32)
   (local $y i32)
-  (drop
+  (set_local $y
    (get_local $x)
   )
-  (if
-   (i32.const 1)
-   (drop
+  (drop
+   (if (result i32)
     (i32.const 1)
+    (block (result i32)
+     (nop)
+     (i32.const 1)
+    )
+    (get_local $y)
    )
   )
   (drop
    (get_local $x)
   )
-  (drop
+  (set_local $y
    (get_local $x)
   )
  )
@@ -1284,29 +1351,39 @@
   (nop)
   (nop)
   (set_local $z
-   (get_local $x)
+   (tee_local $y
+    (get_local $x)
+   )
   )
   (drop
-   (get_local $x)
+   (get_local $y)
   )
-  (if
-   (i32.const 1)
-   (drop
+  (set_local $y
+   (if (result i32)
     (i32.const 1)
+    (block (result i32)
+     (nop)
+     (i32.const 1)
+    )
+    (get_local $y)
    )
   )
   (set_local $x
    (get_local $z)
   )
-  (if
-   (i32.const 1)
-   (drop
+  (drop
+   (if (result i32)
     (i32.const 1)
+    (block (result i32)
+     (nop)
+     (i32.const 1)
+    )
+    (get_local $y)
    )
   )
   (nop)
   (nop)
-  (drop
+  (set_local $y
    (get_local $x)
   )
   (nop)
@@ -1315,21 +1392,23 @@
     (i32.const 2)
    )
   )
-  (if
-   (i32.const 1)
-   (drop
+  (drop
+   (if (result i32)
     (i32.const 1)
+    (block (result i32)
+     (nop)
+     (i32.const 1)
+    )
+    (get_local $y)
    )
   )
   (nop)
   (nop)
-  (drop
-   (get_local $x)
-  )
+  (nop)
   (set_local $z
    (i32.const 2)
   )
-  (drop
+  (set_local $y
    (get_local $x)
   )
  )

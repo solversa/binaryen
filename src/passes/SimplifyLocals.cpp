@@ -126,7 +126,7 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
     } else if (curr->is<Block>()) {
       return; // handled in visitBlock
     } else if (curr->is<If>()) {
-      assert(!curr->cast<If>()->ifFalse); // if-elses are handled by doNoteIfElse* methods
+      assert(!curr->cast<If>()->ifFalse); // if-elses are handled by doNoteIf* methods
     } else if (curr->is<Switch>()) {
       auto* sw = curr->cast<Switch>();
       auto targets = BranchUtils::getUniqueTargets(sw);
@@ -138,26 +138,34 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
     self->sinkables.clear();
   }
 
-  static void doNoteIfElseCondition(SimplifyLocals<allowTee, allowStructure, allowNesting>* self, Expression** currp) {
+  static void doNoteIfCondition(SimplifyLocals<allowTee, allowStructure, allowNesting>* self, Expression** currp) {
     // we processed the condition of this if-else, and now control flow branches
     // into either the true or the false sides
-    assert((*currp)->cast<If>()->ifFalse);
     self->sinkables.clear();
   }
 
-  static void doNoteIfElseTrue(SimplifyLocals<allowTee, allowStructure, allowNesting>* self, Expression** currp) {
-    // we processed the ifTrue side of this if-else, save it on the stack
-    assert((*currp)->cast<If>()->ifFalse);
-    self->ifStack.push_back(std::move(self->sinkables));
+  static void doNoteIfTrue(SimplifyLocals<allowTee, allowStructure, allowNesting>* self, Expression** currp) {
+    auto* iff = (*currp)->dynCast<If>();
+    if (iff->ifFalse) {
+      // We processed the ifTrue side of this if-else, save it on the stack.
+      assert((*currp)->cast<If>()->ifFalse);
+      self->ifStack.push_back(std::move(self->sinkables));
+    } else {
+      // This is an if without an else.
+      if (allowStructure) {
+        self->optimizeIfReturn(iff, currp);
+      }
+      self->sinkables.clear();
+    }
   }
 
-  static void doNoteIfElseFalse(SimplifyLocals<allowTee, allowStructure, allowNesting>* self, Expression** currp) {
+  static void doNoteIfFalse(SimplifyLocals<allowTee, allowStructure, allowNesting>* self, Expression** currp) {
     // we processed the ifFalse side of this if-else, we can now try to
     // mere with the ifTrue side and optimize a return value, if possible
     auto* iff = (*currp)->cast<If>();
     assert(iff->ifFalse);
     if (allowStructure) {
-      self->optimizeIfReturn(iff, currp, self->ifStack.back());
+      self->optimizeIfElseReturn(iff, currp, self->ifStack.back());
     }
     self->ifStack.pop_back();
     self->sinkables.clear();
@@ -444,7 +452,7 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
   }
 
   // optimize set_locals from both sides of an if into a return value
-  void optimizeIfReturn(If* iff, Expression** currp, Sinkables& ifTrue) {
+  void optimizeIfElseReturn(If* iff, Expression** currp, Sinkables& ifTrue) {
     assert(iff->ifFalse);
     // if this if already has a result, or is unreachable code, we have
     // nothing to do
@@ -532,20 +540,76 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
     anotherCycle = true;
   }
 
+  // Optimize set_locals from a one-sided iff, adding a get on the other:
+  //  (if
+  //    (..condition..)
+  //    (block
+  //      (set_local $x (..value..))
+  //    )
+  //  )
+  // =>
+  //  (set_local $x
+  //    (if (result ..)
+  //      (..condition..)
+  //      (block (result ..)
+  //        (..value..)
+  //      )
+  //      (get_local $x)
+  //    )
+  //  )
+  // This is a speculative optimization: we add a get here, so this is harmful
+  // for code size. However, we may be able to sink the set and enable other
+  // optimizations later, so it is worth trying. If it ends up not worthwhile,
+  // we can undo it later.
+  void optimizeIfReturn(If* iff, Expression** currp) {
+    // If this if is unreachable code, we have nothing to do.
+    if (iff->type != none || iff->ifTrue->type != none) return;
+    // Anything sinkable is good for us.
+    if (sinkables.empty()) return;
+    Index goodIndex = sinkables.begin()->first;
+    // great, we can optimize!
+    // ensure we have a place to write the return values for, if not, we
+    // need another cycle
+    auto* ifTrueBlock = iff->ifTrue->dynCast<Block>();
+    if (!ifTrueBlock || ifTrueBlock->list.size() == 0  || !ifTrueBlock->list.back()->is<Nop>()) {
+      ifsToEnlarge.push_back(iff);
+      return;
+    }
+    // All set, go. Update the ifTrue side.
+    Builder builder(*this->getModule());
+    auto** item = sinkables.at(goodIndex).item;
+    auto* set = (*item)->template cast<SetLocal>();
+    ifTrueBlock->list[ifTrueBlock->list.size() - 1] = set->value;
+    *item = builder.makeNop();
+    ifTrueBlock->finalize();
+    assert(ifTrueBlock->type != none);
+    // Update the ifFalse side.
+    iff->ifFalse = builder.makeGetLocal(set->index, set->value->type);
+    iff->finalize(); // update type
+    assert(iff->type != none);
+    // Finally, reuse the set_local on the iff itself.
+    set->value = iff;
+    set->finalize();
+    *currp = set;
+    anotherCycle = true;
+  }
+
   // override scan to add a pre and a post check task to all nodes
   static void scan(SimplifyLocals<allowTee, allowStructure, allowNesting>* self, Expression** currp) {
     self->pushTask(visitPost, currp);
 
     auto* curr = *currp;
 
-    if (curr->is<If>() && curr->cast<If>()->ifFalse) {
-      // handle if-elses in a special manner, using the ifStack
-      self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::doNoteIfElseFalse, currp);
-      self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::scan, &curr->cast<If>()->ifFalse);
-      self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::doNoteIfElseTrue, currp);
-      self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::scan, &curr->cast<If>()->ifTrue);
-      self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::doNoteIfElseCondition, currp);
-      self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::scan, &curr->cast<If>()->condition);
+    if (auto* iff = curr->dynCast<If>()) {
+      // handle if in a special manner, using the ifStack for if-elses etc.
+      if (iff->ifFalse) {
+        self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::doNoteIfFalse, currp);
+        self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::scan, &iff->ifFalse);
+      }
+      self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::doNoteIfTrue, currp);
+      self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::scan, &iff->ifTrue);
+      self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::doNoteIfCondition, currp);
+      self->pushTask(SimplifyLocals<allowTee, allowStructure, allowNesting>::scan, &iff->condition);
     } else {
       WalkerPass<LinearExecutionWalker<SimplifyLocals<allowTee, allowStructure, allowNesting>>>::scan(self, currp);
     }
@@ -608,10 +672,12 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
         if (ifTrue->list.size() == 0 || !ifTrue->list.back()->template is<Nop>()) {
           ifTrue->list.push_back(this->getModule()->allocator.template alloc<Nop>());
         }
-        auto ifFalse = Builder(*this->getModule()).blockify(iff->ifFalse);
-        iff->ifFalse = ifFalse;
-        if (ifFalse->list.size() == 0 || !ifFalse->list.back()->template is<Nop>()) {
-          ifFalse->list.push_back(this->getModule()->allocator.template alloc<Nop>());
+        if (iff->ifFalse) {
+          auto ifFalse = Builder(*this->getModule()).blockify(iff->ifFalse);
+          iff->ifFalse = ifFalse;
+          if (ifFalse->list.size() == 0 || !ifFalse->list.back()->template is<Nop>()) {
+            ifFalse->list.push_back(this->getModule()->allocator.template alloc<Nop>());
+          }
         }
       }
       ifsToEnlarge.clear();
