@@ -56,6 +56,8 @@
 #include "ir/equivalent_sets.h"
 #include <ir/find_all.h>
 #include <ir/manipulation.h>
+#include <ir/utils.h>
+#include "opt-utils.h"
 
 namespace wasm {
 
@@ -505,14 +507,14 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
     // need another cycle
     auto* ifTrueBlock  = iff->ifTrue->dynCast<Block>();
     if (iff->ifTrue->type != unreachable) {
-      if (!ifTrueBlock  || ifTrueBlock->list.size() == 0  || !ifTrueBlock->list.back()->is<Nop>()) {
+      if (!ifTrueBlock  || ifTrueBlock->name.is() || ifTrueBlock->list.size() == 0  || !ifTrueBlock->list.back()->is<Nop>()) {
         ifsToEnlarge.push_back(iff);
         return;
       }
     }
     auto* ifFalseBlock = iff->ifFalse->dynCast<Block>();
     if (iff->ifFalse->type != unreachable) {
-      if (!ifFalseBlock  || ifFalseBlock->list.size() == 0  || !ifFalseBlock->list.back()->is<Nop>()) {
+      if (!ifFalseBlock  || ifFalseBlock->name.is() || ifFalseBlock->list.size() == 0  || !ifFalseBlock->list.back()->is<Nop>()) {
         ifsToEnlarge.push_back(iff);
         return;
       }
@@ -558,24 +560,22 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
   //    )
   //  )
   // This is a speculative optimization: we add a get here, so this is harmful
-  // for code size. However, we may be able to sink the set and enable other
-  // optimizations later, so it is worth trying. If it ends up not worthwhile,
-  // we can undo it later.
+  // for code size, and only helps if we can sink the set and enable other
+  // optimizations later. We can try to undo it later if the speculation fails.
   void optimizeIfReturn(If* iff, Expression** currp) {
     // If this if is unreachable code, we have nothing to do.
     if (iff->type != none || iff->ifTrue->type != none) return;
     // Anything sinkable is good for us.
     if (sinkables.empty()) return;
     Index goodIndex = sinkables.begin()->first;
-    // great, we can optimize!
-    // ensure we have a place to write the return values for, if not, we
-    // need another cycle
+    // Ensure we have a place to write the return values for, if not, we
+    // need another cycle.
     auto* ifTrueBlock = iff->ifTrue->dynCast<Block>();
-    if (!ifTrueBlock || ifTrueBlock->list.size() == 0  || !ifTrueBlock->list.back()->is<Nop>()) {
+    if (!ifTrueBlock || ifTrueBlock->name.is() || ifTrueBlock->list.size() == 0  || !ifTrueBlock->list.back()->is<Nop>()) {
       ifsToEnlarge.push_back(iff);
       return;
     }
-    // All set, go. Update the ifTrue side.
+    // Update the ifTrue side.
     Builder builder(*this->getModule());
     auto** item = sinkables.at(goodIndex).item;
     auto* set = (*item)->template cast<SetLocal>();
@@ -668,13 +668,13 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
     // enlarge ifs that were marked, for the next round
     if (ifsToEnlarge.size() > 0) {
       for (auto* iff : ifsToEnlarge) {
-        auto ifTrue = Builder(*this->getModule()).blockify(iff->ifTrue);
+        auto ifTrue = Builder(*this->getModule()).blockifyWithName(iff->ifTrue, Name());
         iff->ifTrue = ifTrue;
         if (ifTrue->list.size() == 0 || !ifTrue->list.back()->template is<Nop>()) {
           ifTrue->list.push_back(this->getModule()->allocator.template alloc<Nop>());
         }
         if (iff->ifFalse) {
-          auto ifFalse = Builder(*this->getModule()).blockify(iff->ifFalse);
+          auto ifFalse = Builder(*this->getModule()).blockifyWithName(iff->ifFalse, Name());
           iff->ifFalse = ifFalse;
           if (ifFalse->list.size() == 0 || !ifFalse->list.back()->template is<Nop>()) {
             ifFalse->list.push_back(this->getModule()->allocator.template alloc<Nop>());
