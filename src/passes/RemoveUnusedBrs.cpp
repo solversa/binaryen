@@ -811,7 +811,7 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
         optimizeSetIf(getCurrentPointer());
       }
 
-      void optimizeSetIf(Expression* currp) {
+      void optimizeSetIf(Expression** currp) {
         if (optimizeSetIfWithBrArm(currp)) return;
         if (optimizeSetIfWithCopyArm(currp)) return;
       }
@@ -833,7 +833,7 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
       //  )
       // TODO: handle a condition in the br? need to watch for side effects
       bool optimizeSetIfWithBrArm(Expression** currp) {
-        auto* set = *currp->cast<SetLocal>();
+        auto* set = (*currp)->cast<SetLocal>();
         auto* iff = set->value->dynCast<If>();
         if (!iff || !isConcreteType(iff->type)) {
           return false;
@@ -905,7 +905,7 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
       // This may be detrimental, however, often the block can be
       // merged or eliminated given the outside scope, and we
       // removed one of the if branches.
-      bool optimizeSetIfWithCopyArm(SetLocal* set, If* iff) {
+      bool optimizeSetIfWithCopyArm(Expression** currp) {
         auto* set = (*currp)->cast<SetLocal>();
         auto* iff = set->value->dynCast<If>();
         if (!iff || !isConcreteType(iff->type)) {
