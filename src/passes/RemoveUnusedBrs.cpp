@@ -835,7 +835,9 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
       bool optimizeSetIfWithBrArm(Expression** currp) {
         auto* set = (*currp)->cast<SetLocal>();
         auto* iff = set->value->dynCast<If>();
-        if (!iff || !isConcreteType(iff->type)) {
+        if (!iff ||
+            !isConcreteType(iff->type) ||
+            !isConcreteType(iff->condition->type)) {
           return false;
         }
         auto tryToOptimize = [&](Expression* one, Expression* two, bool flipCondition) {
@@ -908,7 +910,9 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
       bool optimizeSetIfWithCopyArm(Expression** currp) {
         auto* set = (*currp)->cast<SetLocal>();
         auto* iff = set->value->dynCast<If>();
-        if (!iff || !isConcreteType(iff->type)) {
+        if (!iff ||
+            !isConcreteType(iff->type) ||
+            !isConcreteType(iff->condition->type)) {
           return false;
         }
         Builder builder(*getModule());
