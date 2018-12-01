@@ -916,13 +916,14 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
         if (get && get->index == set->index) {
           builder.flip(iff);
         } else {
-          get = iff->ifFalse->cast<GetLocal>();
+          get = iff->ifFalse->dynCast<GetLocal>();
           if (get && get->index != set->index) {
             get = nullptr;
           }
         }
         if (!get) return false;
         // We can do it!
+        bool tee = set->isTee();
         assert(set->index == get->index);
         assert(iff->ifFalse == get);
         set->value = iff->ifTrue;
@@ -931,7 +932,7 @@ struct RemoveUnusedBrs : public WalkerPass<PostWalker<RemoveUnusedBrs>> {
         iff->ifFalse = nullptr;
         iff->finalize();
         Expression* replacement = iff;
-        if (set->isTee()) {
+        if (tee) {
           set->setTee(false);
           // We need a block too.
           replacement = builder.makeSequence(
