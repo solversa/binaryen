@@ -998,7 +998,7 @@
    )
    (i32.const 0)
   )
-  (func $splittable-ifs-multicycle (param $20 i32)
+  (func $splittable-ifs-multicycle (param $20 i32) (result i32)
    (set_local $20
     (if (result i32)
      (i32.const 1)
@@ -1014,6 +1014,7 @@
      (get_local $20)
     )
    )
+   (get_local $20)
   )
 )
 (module
