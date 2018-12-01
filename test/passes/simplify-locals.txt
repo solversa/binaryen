@@ -1035,6 +1035,20 @@
   )
   (i32.const 0)
  )
+ (func $splittable-ifs-multicycle (; 23 ;) (type $4) (param $20 i32)
+  (if
+   (i32.const 1)
+   (if
+    (i32.const 2)
+    (if
+     (i32.const 3)
+     (set_local $20
+      (i32.const 4)
+     )
+    )
+   )
+  )
+ )
 )
 (module
  (type $FUNCSIG$v (func))

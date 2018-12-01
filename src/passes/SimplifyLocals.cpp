@@ -885,6 +885,7 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
   void runFinalOptimizations(Function* func) {
     struct FinalOptimizer : public PostWalker<FinalOptimizer> {
       Module* module;
+      bool anotherCycle = false;
 
       void visitSetLocal(SetLocal *curr) {
         if (!isSplittableIf(curr)) return;
@@ -939,15 +940,21 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
                 );
               }
               this->replaceCurrent(replacement);
+              anotherCycle = true;
             }
           }
         }
       }
     };
 
-    FinalOptimizer finalOptimizer;
-    finalOptimizer.module = this->getModule();
-    finalOptimizer.walkFunction(func);
+    while (1) {
+      FinalOptimizer finalOptimizer;
+      finalOptimizer.module = this->getModule();
+      finalOptimizer.walkFunction(func);
+      if (!finalOptimizer.anotherCycle) {
+        break;
+      }
+    }
   }
 
   bool canUseLoopReturnValue(Loop* curr) {
