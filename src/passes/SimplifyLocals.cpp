@@ -56,8 +56,6 @@
 #include "ir/equivalent_sets.h"
 #include <ir/find_all.h>
 #include <ir/manipulation.h>
-#include <ir/utils.h>
-#include "opt-utils.h"
 
 namespace wasm {
 
