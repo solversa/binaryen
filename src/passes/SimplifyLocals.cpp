@@ -61,6 +61,33 @@
 
 namespace wasm {
 
+// A splittable if a set with an if which has one arm that is
+// a get for the same set,
+//  (set_local $x
+//    (if (result ..)
+//      (..condition..)
+//      (..value..)
+//      (get_local $x)
+//    )
+//  )
+// We can break it up, removing the get arm and sinking the
+// set into the other.
+static bool isSplittableIf(SetLocal* set) {
+  if (auto* iff = set->value->dynCast<If>()) {
+    if (!iff->ifFalse) return false;
+    if (auto* get = iff->ifTrue->dynCast<GetLocal>()) {
+      if (get->index == set->index) {
+        return true;
+      }
+    } else if (auto* get = iff->ifFalse->dynCast<GetLocal>()) {
+      if (get->index == set->index) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Main class
 
 template<bool allowTee = true, bool allowStructure = true, bool allowNesting = true>
@@ -238,6 +265,13 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
         // with just one use, we can sink just the value
         this->replaceCurrent(set->value);
       } else {
+        // More than one use, so we'd need a tee. That's not good if our value
+        // is a splittable if, which we may have created ourselves in optimizeIfReturn,
+        // and regardless of origin it is something we can simplify in a better way
+        // than a tee later on - we can remove the arm with the get.
+        if (isSplittableIf(set)) {
+          return;
+        }
         this->replaceCurrent(set);
         assert(!set->isTee());
         set->setTee(true);
@@ -562,6 +596,11 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
   // This is a speculative optimization: we add a get here, so this is harmful
   // for code size, and only helps if we can sink the set and enable other
   // optimizations later. We can try to undo it later if the speculation fails.
+  // There are three possible things that can happen:
+  //   1. We optimize the set onto a get, so the set goes away, we win.
+  //   2. We fail to do anything, and it's easy to remove the set.
+  //   3. We partially optimize the set into a tee. It's not clear if this is
+  //      worth it: we added a get in order to remove a get.
   void optimizeIfReturn(If* iff, Expression** currp) {
     // If this if is unreachable code, we have nothing to do.
     if (iff->type != none || iff->ifTrue->type != none) return;
@@ -590,6 +629,7 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
     // Finally, reuse the set_local on the iff itself.
     set->value = iff;
     set->finalize();
+    assert(isSplittableIf(set));
     *currp = set;
     anotherCycle = true;
   }
@@ -853,6 +893,7 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
 
       void visitSetLocal(SetLocal *curr) {
         if (curr->isTee()) return;
+        if (!isSplittableIf(curr)) return;
         // See if we should undo an if => if-else speculative optimization,
         //  (set_local $x
         //    (if (result ..)
@@ -872,7 +913,6 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
         //      )
         //    )
         //  )
-        // Check if any uses remain.
         if (auto* iff = curr->value->dynCast<If>()) {
           if (iff->type != unreachable) {
             Builder builder(*module);
@@ -880,7 +920,7 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
             if (get && get->index == curr->index) {
               builder.flip(iff);
             } else {
-              get = iff->ifFalse->dynCast<GetLocal>();
+              get = iff->ifFalse->cast<GetLocal>();
               if (get && get->index != curr->index) {
                 get = nullptr;
               }
