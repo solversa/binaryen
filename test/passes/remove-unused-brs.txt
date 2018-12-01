@@ -1844,11 +1844,10 @@
      (block $label$4 (result i64)
       (block $label$5
        (block $label$6
-        (block
-         (br_if $label$5
+        (set_local $var$1
+         (if (result f64)
           (unreachable)
-         )
-         (set_local $var$1
+          (br $label$5)
           (f64.const 1)
          )
         )
