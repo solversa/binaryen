@@ -265,13 +265,6 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
         // with just one use, we can sink just the value
         this->replaceCurrent(set->value);
       } else {
-        // More than one use, so we'd need a tee. That's not good if our value
-        // is a splittable if, which we may have created ourselves in optimizeIfReturn,
-        // and regardless of origin it is something we can simplify in a better way
-        // than a tee later on - we can remove the arm with the get.
-        if (isSplittableIf(set)) {
-          return;
-        }
         this->replaceCurrent(set);
         assert(!set->isTee());
         set->setTee(true);
@@ -599,8 +592,10 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
   // There are three possible things that can happen:
   //   1. We optimize the set onto a get, so the set goes away, we win.
   //   2. We fail to do anything, and it's easy to remove the set.
-  //   3. We partially optimize the set into a tee. It's not clear if this is
-  //      worth it: we added a get in order to remove a get.
+  //   3. We partially optimize the set into a tee. This is not worth it: we
+  //      added an if-else opcode for the else, and the get, so removing a get
+  //      is not enough to justify it. We can undo this into a block, but there
+  //      is a risk of later opts not being able to recoup this.
   void optimizeIfReturn(If* iff, Expression** currp) {
     // If this if is unreachable code, we have nothing to do.
     if (iff->type != none || iff->ifTrue->type != none) return;
@@ -892,7 +887,6 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
       Module* module;
 
       void visitSetLocal(SetLocal *curr) {
-        if (curr->isTee()) return;
         if (!isSplittableIf(curr)) return;
         // See if we should undo an if => if-else speculative optimization,
         //  (set_local $x
@@ -913,6 +907,8 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
         //      )
         //    )
         //  )
+        // If this a tee, we need some more: a block with a get at
+        // the end.
         if (auto* iff = curr->value->dynCast<If>()) {
           if (iff->type != unreachable) {
             Builder builder(*module);
@@ -933,7 +929,16 @@ struct SimplifyLocals : public WalkerPass<LinearExecutionWalker<SimplifyLocals<a
               iff->ifTrue = curr;
               iff->ifFalse = nullptr;
               iff->finalize();
-              this->replaceCurrent(iff);
+              Expression* replacement = iff;
+              if (curr->isTee()) {
+                curr->setTee(false);
+                // We need a block too.
+                replacement = builder.makeSequence(
+                  iff,
+                  get // reuse the get
+                );
+              }
+              this->replaceCurrent(replacement);
             }
           }
         }

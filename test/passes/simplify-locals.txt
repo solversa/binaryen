@@ -952,28 +952,83 @@
   (local $2 i32)
   (local $3 i32)
   (local $4 i32)
+  (local $x i32)
+  (local $y i32)
+  (local $z i32)
+  (if
+   (i32.const -1)
+   (set_local $x
+    (i32.const -2)
+   )
+  )
+  (drop
+   (call $if-one-side-undo-but-its-a-tee
+    (block (result i32)
+     (if
+      (i32.const -3)
+      (set_local $x
+       (i32.const -4)
+      )
+     )
+     (get_local $x)
+    )
+   )
+  )
+  (nop)
+  (drop
+   (i32.eqz
+    (block (result i32)
+     (if
+      (i32.const -5)
+      (set_local $y
+       (i32.const -6)
+      )
+     )
+     (get_local $y)
+    )
+   )
+  )
+  (nop)
+  (drop
+   (i32.add
+    (block (result i32)
+     (if
+      (i32.const -7)
+      (set_local $z
+       (i32.const -8)
+      )
+     )
+     (get_local $z)
+    )
+    (get_local $z)
+   )
+  )
   (if
    (block $label$1 (result i32)
     (nop)
     (nop)
-    (tee_local $4
-     (if (result i32)
-      (tee_local $4
-       (if (result i32)
+    (block (result i32)
+     (if
+      (block (result i32)
+       (if
         (i32.const 1)
-        (block (result i32)
-         (nop)
-         (i32.const 2)
+        (set_local $4
+         (block (result i32)
+          (nop)
+          (i32.const 2)
+         )
         )
-        (get_local $4)
+       )
+       (get_local $4)
+      )
+      (set_local $4
+       (block (result i32)
+        (nop)
+        (i32.const 0)
        )
       )
-      (block (result i32)
-       (nop)
-       (i32.const 0)
-      )
-      (get_local $4)
      )
+     (get_local $4)
     )
    )
    (unreachable)
