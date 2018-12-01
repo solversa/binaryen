@@ -882,6 +882,140 @@
     )
    )
   )
+  (func $if-one-side (result i32)
+   (local $x i32)
+   (if
+    (i32.const 1)
+    (set_local $x
+     (i32.const 2)
+    )
+   )
+   (get_local  $x)
+  )
+  (func $if-one-side-undo (result i32)
+   (local $x i32)
+   (local $y i32)
+   (set_local $y
+    (i32.const 0)
+   )
+   (if
+    (i32.const 1)
+    (set_local $x
+     (i32.const 2)
+    )
+   )
+   (get_local  $y)
+  )
+  (func $if-one-side-multi (param $0 i32) (result i32)
+   (if
+    (i32.lt_s
+     (get_local $0)
+     (i32.const -1073741824)
+    )
+    (set_local $0
+     (i32.const -1073741824)
+    )
+    (if
+     (i32.gt_s
+      (get_local $0)
+      (i32.const 1073741823)
+     )
+     (set_local $0
+      (i32.const 1073741823)
+     )
+    )
+   )
+   (get_local $0)
+  )
+  (func $if-one-side-undo-but-its-a-tee (param $0 i32) (result i32)
+   (local $1 i32)
+   (local $2 i32)
+   (local $3 i32)
+   (local $4 i32)
+   (local $x i32)
+   (local $y i32)
+   (local $z i32)
+   ;; break these splittable ifs up
+   (set_local $x
+     (if (result i32)
+       (i32.const -1)
+       (i32.const -2)
+       (get_local $x)
+     )
+   )
+   ;; oops, this one is a tee
+   (drop
+    (call $if-one-side-undo-but-its-a-tee
+     (tee_local $x
+       (if (result i32)
+         (i32.const -3)
+         (i32.const -4)
+         (get_local $x)
+       )
+     )
+    )
+   )
+   ;; sinkable
+   (set_local $y
+     (if (result i32)
+       (i32.const -5)
+       (i32.const -6)
+       (get_local $y)
+     )
+   )
+   (drop (i32.eqz (get_local $y)))
+   ;; tee-able at best
+   (set_local $z
+     (if (result i32)
+       (i32.const -7)
+       (i32.const -8)
+       (get_local $z)
+     )
+   )
+   (drop
+    (i32.add
+     (get_local $z)
+     (get_local $z)
+    )
+   )
+   (if
+    (block $label$1 (result i32)
+     (if
+      (i32.const 1)
+      (set_local $4
+       (i32.const 2)
+      )
+     )
+     (if
+      (get_local $4)
+      (set_local $4
+       (i32.const 0)
+      )
+     )
+     (get_local $4)
+    )
+    (unreachable)
+   )
+   (i32.const 0)
+  )
+  (func $splittable-ifs-multicycle (param $20 i32) (result i32)
+   (set_local $20
+    (if (result i32)
+     (i32.const 1)
+     (if (result i32)
+      (i32.const 2)
+      (if (result i32)
+       (i32.const 3)
+       (i32.const 4)
+       (get_local $20)
+      )
+      (get_local $20)
+     )
+     (get_local $20)
+    )
+   )
+   (get_local $20)
+  )
 )
 (module
   (memory (shared 256 256))
